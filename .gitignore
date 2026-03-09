@@ -1,4 +1,22 @@
-myenv/**/*
+# Python stuff
 __pycache__/
-.ipynb_checkpoints/
-.gitignore
+*.py[cod]
+*$py.class
+venv/
+myenv/
+.env
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Data (If your CSVs are very large, ignore them and provide a link instead)
+# data/*.csv
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
