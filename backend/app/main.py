@@ -1,12 +1,17 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy import text
 import joblib
 import pandas as pd
 import numpy as np
 import os
+from .database import engine, Base, get_db
+from sqlalchemy.orm import Session
+from . import models
 
+models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "../models")
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "../../models")
 lasso = joblib.load(os.path.join(MODEL_DIR, "lasso_model.pkl"))
 ridge = joblib.load(os.path.join(MODEL_DIR, "ridge_model.pkl"))
 xgb = joblib.load(os.path.join(MODEL_DIR, "xgb_model.pkl"))
@@ -66,3 +71,20 @@ async def predict(data: dict):
 async def root():
     return {"message": "Welcome to the Boston Housing Price Prediction API!"}
     
+@app.get("/db-test")
+def test_db_connection(db: Session = Depends(get_db)):
+    try:
+        # Execute the query
+        query_result = db.execute(text("SELECT 1")).fetchone()
+        
+        # Defensive Check: Ensure query_result is NOT None
+        if query_result is None:
+            raise HTTPException(status_code=500, detail="Database returned no data.")
+            
+        return {
+            "status": "online", 
+            "message": "Database connection successful!",
+            "result": query_result[0]  # Now Pylance knows this is safe
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
