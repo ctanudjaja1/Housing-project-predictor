@@ -17,9 +17,16 @@ class Prediction(Base):
     __tablename__ = "predictions"
 
     id = Column(Integer, primary_key=True, index=True)
-    area = Column(Float, nullable=False)
-    bedrooms = Column(Integer)
-    predicted_price = Column(Float, nullable=False)
+    
+    # These match the key features found in your housing.ipynb
+    gr_liv_area = Column(Float)      # "GrLivArea" from your notebook
+    bedrooms = Column(Integer)       # "BedroomAbvGr" from your notebook
+    overall_qual = Column(Integer)   # A top feature in housing models
+    
+    # The result of your AI model
+    predicted_price = Column(Float)
+    
+    # This allows users to see WHEN they made the prediction
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Foreign Key: Links this prediction to a specific User ID
