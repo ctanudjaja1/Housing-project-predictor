@@ -1,19 +1,21 @@
-# Python stuff
+# Python & Jupyter
 __pycache__/
 *.py[cod]
 *$py.class
 venv/
 myenv/
 .env
-
-# Jupyter Notebooks
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 
-# Data (If your CSVs are very large, ignore them and provide a link instead)
-# data/*.csv
+# Frontend (CRITICAL)
+node_modules/
+dist/
+build/
 
-# System files
+# Database & System
+*.db
+*.sqlite3
 .DS_Store
 Thumbs.db
 

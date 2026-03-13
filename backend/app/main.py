@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import joblib
 import pandas as pd
@@ -10,6 +11,15 @@ from . import models, schemas
 
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Adjust this to your frontend's origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Get the directory where main.py is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
