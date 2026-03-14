@@ -5,7 +5,7 @@ import joblib
 import pandas as pd
 import numpy as np
 import os
-from .database import engine, Base, get_db
+from .database import SessionLocal, engine, Base, get_db
 from sqlalchemy.orm import Session
 from . import models, schemas
 
@@ -42,23 +42,27 @@ except Exception as e:
 # You can add more endpoints as needed for your application
 
 def apply_preprocessing(request: schemas.PredictionCreate):
-    # 1. Start with a DataFrame of the column means (the "Baseline")
+    #Start with baseline averages
     final_df = pd.DataFrame([column_means.values], columns=model_columns)
 
-    # 2. Map Schema Names -> Ames Dataset Names
-    # This is the "Translation" step.
+    # Standard garage is ~250 sq ft per car slot
+    estimated_area = float(request.garage_cars * 250)
+
     user_input_mapped = {
         "GrLivArea": request.gr_liv_area,
         "BedroomAbvGr": request.bedrooms,
-        "OverallQual": request.overall_qual
+        "OverallQual": request.overall_qual,
+        "YearBuilt": request.year_built,      
+        "TotalBsmtSF": request.total_bsmt_sf,
+        "GarageCars": request.garage_cars,
+        "GarageArea": estimated_area 
     }
 
-    # 3. Overwrite the averages with the User's Data
+    #Apply transformations (including log if needed)
     for col, val in user_input_mapped.items():
         if col in model_columns:
-            # Apply log transformation IF it was a skewed feature in training
+            # If the model expects a log-transformed version, apply it
             if col in skewed_features:
-                # We use float() because Pydantic already guaranteed it's a number
                 val = np.log1p(float(val))
             
             final_df[col] = val
@@ -85,8 +89,11 @@ async def predict(request: schemas.PredictionCreate, db: Session = Depends(get_d
         gr_liv_area=request.gr_liv_area,
         bedrooms=request.bedrooms,
         overall_qual=request.overall_qual,
+        year_built=request.year_built,         
+        total_bsmt_sf=request.total_bsmt_sf,   
+        garage_cars=request.garage_cars,       
         predicted_price=round(actual_price, 2),
-        user_id=1 # Temporary
+        user_id=1 
     )
     db.add(new_prediction)
     db.commit()

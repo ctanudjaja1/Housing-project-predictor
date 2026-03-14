@@ -5,6 +5,9 @@ class PredictionBase(BaseModel):
     gr_liv_area: float
     bedrooms: int
     overall_qual: int
+    year_built: int
+    total_bsmt_sf: float
+    garage_cars: int
 
 class PredictionCreate(PredictionBase):
     pass

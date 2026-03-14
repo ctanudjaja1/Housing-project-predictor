@@ -8,7 +8,7 @@ myenv/
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 
-# Frontend (CRITICAL)
+# Frontend
 node_modules/
 dist/
 build/

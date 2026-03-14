@@ -22,6 +22,9 @@ class Prediction(Base):
     gr_liv_area = Column(Float)      # "GrLivArea" from your notebook
     bedrooms = Column(Integer)       # "BedroomAbvGr" from your notebook
     overall_qual = Column(Integer)   # A top feature in housing models
+    year_built = Column(Integer)
+    total_bsmt_sf = Column(Float)
+    garage_cars = Column(Integer)
     
     # The result of your AI model
     predicted_price = Column(Float)
