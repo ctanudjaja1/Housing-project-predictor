@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, HTTPException
+from datetime import datetime, timezone
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import joblib
@@ -7,7 +8,10 @@ import numpy as np
 import os
 from .database import SessionLocal, engine, Base, get_db
 from sqlalchemy.orm import Session
-from . import models, schemas
+from . import models, schemas, auth
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from .auth import SECRET_KEY, ALGORITHM
 
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -40,6 +44,28 @@ except Exception as e:
     print(f"CRITICAL ERROR: {e}")
     
 # You can add more endpoints as needed for your application
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        # 1. Decode the token using your Secret Key
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+        
+    # 2. Find the user in Postgres
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if user is None:
+        raise credentials_exception
+    return user
 
 def apply_preprocessing(request: schemas.PredictionCreate):
     #Start with baseline averages
@@ -71,7 +97,7 @@ def apply_preprocessing(request: schemas.PredictionCreate):
 
 # We have the model, so now lets put it here
 @app.post("/predict", response_model=schemas.PredictionResponse)
-async def predict(request: schemas.PredictionCreate, db: Session = Depends(get_db)):
+async def predict(request: schemas.PredictionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     # 1. Preprocess
     processed_df = apply_preprocessing(request)
     
@@ -93,7 +119,7 @@ async def predict(request: schemas.PredictionCreate, db: Session = Depends(get_d
         total_bsmt_sf=request.total_bsmt_sf,   
         garage_cars=request.garage_cars,       
         predicted_price=round(actual_price, 2),
-        user_id=1 
+        user_id= current_user.id 
     )
     db.add(new_prediction)
     db.commit()
@@ -125,9 +151,140 @@ def test_db_connection(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 @app.get("/history", response_model=list[schemas.PredictionResponse])
-def get_prediction_history(db: Session = Depends(get_db)):
-    # 1. Query the database for all predictions
-    # 2. Sort by 'created_at' descending so the newest ones are at the top
-    history = db.query(models.Prediction).order_by(models.Prediction.created_at.desc()).all()
+def get_prediction_history(
+    trash: bool = False, # Default to showing LIVE records
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    query = db.query(models.Prediction).filter(models.Prediction.user_id == current_user.id)
     
-    return history
+    if trash:
+        # Show ONLY deleted items
+        query = query.filter(models.Prediction.deleted_at != None)
+    else:
+        # Show ONLY active items
+        query = query.filter(models.Prediction.deleted_at == None)
+        
+    return query.order_by(models.Prediction.created_at.desc()).all()
+
+@app.post("/register")
+def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+    # 1. Access username via user_data.username
+    db_user = db.query(models.User).filter(models.User.username == user_data.username).first()
+    
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    # 2. Access password via user_data.password
+    hashed_pwd = auth.hash_password(user_data.password)
+    
+    # 3. Create the user using the extracted data
+    new_user = models.User(
+        username=user_data.username, 
+        hashed_password=hashed_pwd
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return {"message": "User created successfully"}
+
+@app.post("/token")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == form_data.username).first()
+    if not user or not auth.verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
+    
+    # Create the JWT token
+    access_token = auth.create_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.delete("/history/clear")
+def clear_user_history(
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    # Filter by user_id so users can't delete each other's data!
+    deleted_count = db.query(models.Prediction).filter(
+        models.Prediction.user_id == current_user.id
+    ).delete()
+    
+    db.commit()
+    return {"message": f"Successfully cleared {deleted_count} records."}
+
+@app.delete("/predictions/{prediction_id}")
+def delete_prediction(
+    prediction_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    # Add ": models.Prediction | None" so the editor knows exactly what this is
+    prediction: models.Prediction | None = db.query(models.Prediction).filter(
+        models.Prediction.id == prediction_id,
+        models.Prediction.user_id == current_user.id
+    ).first()
+
+    if not prediction:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    prediction.deleted_at = datetime.now(timezone.utc) # type: ignore #
+    
+    db.commit()
+    return {"message": "Soft deleted"}
+
+@app.post("/predictions/{prediction_id}/restore")
+def restore_prediction(
+    prediction_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    # We look specifically for the record belonging to this user
+    prediction = db.query(models.Prediction).filter(
+        models.Prediction.id == prediction_id,
+        models.Prediction.user_id == current_user.id
+    ).first()
+
+    if not prediction:
+        raise HTTPException(status_code=404, detail="Prediction not found")
+
+    # Bring it back to life!
+    prediction.deleted_at = None # type: ignore
+    db.commit()
+    
+    return {"message": "Prediction restored successfully"}
+
+@app.delete("/predictions/{prediction_id}/permanent")
+def permanent_delete(prediction_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    prediction = db.query(models.Prediction).filter(
+        models.Prediction.id == prediction_id,
+        models.Prediction.user_id == current_user.id
+    ).first()
+    
+    if not prediction:
+        raise HTTPException(status_code=404, detail="Prediction not found")
+        
+    db.delete(prediction) # This is a HARD delete
+    db.commit()
+    return {"message": "Permanently deleted"}
+
+
+@app.delete("/history/clear-soft")
+def clear_history_soft(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    # Update all records for this user that aren't already deleted
+    db.query(models.Prediction).filter(
+        models.Prediction.user_id == current_user.id,
+        models.Prediction.deleted_at == None
+    ).update({models.Prediction.deleted_at: datetime.now(timezone.utc)}, synchronize_session=False)
+    
+    db.commit()
+    return {"message": "All items moved to trash"}
+
+@app.delete("/history/purge")
+def purge_trash(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    db.query(models.Prediction).filter(
+        models.Prediction.user_id == current_user.id,
+        models.Prediction.deleted_at != None
+    ).delete(synchronize_session=False)
+    
+    db.commit()
+    return {"message": "Trash purged permanently"}

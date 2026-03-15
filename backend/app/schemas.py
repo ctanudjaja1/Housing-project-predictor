@@ -21,3 +21,15 @@ class PredictionResponse(PredictionBase):
     class Config:
         from_attributes = True
 
+# For the registration request (what React sends)
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+# For the user response (if you want to return user info later)
+class UserResponse(BaseModel):
+    id: int
+    username: str
+
+    class Config:
+        from_attributes = True
