@@ -16,10 +16,12 @@ from .auth import SECRET_KEY, ALGORITHM
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust this to your frontend's origin
+    allow_origins=[FRONTEND_ORIGIN],  # Adjust this to your frontend's origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -28,7 +30,7 @@ app.add_middleware(
 # Get the directory where main.py is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-MODELS_PATH = os.path.join(BASE_DIR, "..", "..", "models")
+MODELS_PATH = os.path.join(BASE_DIR, "..", "models")
 
 try:
     lasso = joblib.load(os.path.join(MODELS_PATH, "lasso_model.pkl"))
